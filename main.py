@@ -3,10 +3,11 @@ import cv2
 import mediapipe as mp # type: ignore
 import torch # type: ignore
 import numpy as np
+import time
 from shared.Data.fingerNames import joints
 from shared.functions.mediapipe_funcs import draw_annotations
 from shared.functions.RPS_ai_funcs import load_model
-from shared.functions.joint_pos_funcs import extract_joint_coordinates
+from shared.functions.joint_pos_funcs import extract_joint_coordinates, finger_locator
 from shared.dataclasses import coordinates
 
 mp_drawing = mp.solutions.drawing_utils
@@ -108,17 +109,26 @@ with mp_hands.Hands(
                 cv2.putText(frame, "No hand detected", org, fontFace, fontScale, color, thickness, lineType)
                 
             # Saves the past positions into an list
-            
             past_wrist_coords.append(current_wrist_coords)
-            
             # If past wrist cords exceeds 2 seconds worth of data then remove last index at
             if len(past_wrist_coords) < 2/fps:
-                past_wrist_coords.pop()
+                past_wrist_coords.pop(0)
             
-            # Check total amplitude
-            y_amplitude = past_wrist_coords[0].y - past_wrist_coords[-1].y
-            if y_amplitude < (min_amplitude*height):
+            # Runs all this code once and allows for me to break
+            flag = True
+            while flag:
                 
+                if len(past_wrist_coords) == (data_for_sec*fps):
+                    # Check total amplitude
+                    y_amplitude = abs(past_wrist_coords[0].y - past_wrist_coords[-1].y)
+                    x_amplitude = abs(past_wrist_coords[0].x - past_wrist_coords[-1].x)
+                    if y_amplitude < (min_amplitude*height):
+                        if x_amplitude < (min_amplitude*width):
+                            game_start_phase += 1
+                # Change the flag to false once the loop is over 
+                flag = False
+                
+                flag = False
             
             # Display the frame AFTER drawing annotations
             cv2.imshow("Webcam Feed", frame)
