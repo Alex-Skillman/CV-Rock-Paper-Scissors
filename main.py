@@ -15,6 +15,7 @@ mp_hands = mp.solutions.hands
 
 # Defines what each tensor means outputted from MLP
 labels = ["Rock", "Paper", "Scissors"]
+winning_moves = {"Rock": "Paper", "Paper": "Scissors", "Scissors": "Rock"}
 
 # Initializes the webcam and returns camera object
 camera, height, width = webcam.webcam_init()
@@ -53,11 +54,15 @@ vertical_movement_ratio = 1.5
 average_time_between_first_two = None
 tracking_lost_at = None
 tracking_grace_period = 0.75
-# Test-only display values. No computer-play selection logic yet.
-computer_play = "Rock"
-show_computer_play = True
+# The computer-play overlay uses the move that beats the confirmed player move.
+computer_play = None
+show_computer_play = False
 computer_play_timeout = 2.0
 computer_play_shown_at = None
+required_positive_frames = 8
+positive_move_label = None
+positive_move_frames = 0
+waiting_for_move_prediction = False
 
 with mp_hands.Hands(
         model_complexity=0,
@@ -160,6 +165,12 @@ with mp_hands.Hands(
                                     if abs(third_beat_time - average_time_between_first_two) <= third_beat_tolerance:
                                         game_start_phase += 1
                                         print("Game started")
+                                        waiting_for_move_prediction = True
+                                        positive_move_label = None
+                                        positive_move_frames = 0
+                                        computer_play = None
+                                        show_computer_play = False
+                                        computer_play_shown_at = None
                                     beat_times = []
                                     average_time_between_first_two = None
 
@@ -194,7 +205,27 @@ with mp_hands.Hands(
                 beat_color = (0, 255, 0) if beat_index < start_phase else (100, 100, 100)
                 cv2.circle(frame, (25 + beat_index * 30, 92), 9, beat_color, -1)
 
-            # Test display: show the current computer value across the screen,
+            # After game start, require the same network prediction for several
+            # consecutive frames before displaying it.
+            if waiting_for_move_prediction:
+                if predicted_class is None:
+                    positive_move_label = None
+                    positive_move_frames = 0
+                else:
+                    predicted_move = labels[predicted_class]
+                    if predicted_move == positive_move_label:
+                        positive_move_frames += 1
+                    else:
+                        positive_move_label = predicted_move
+                        positive_move_frames = 1
+
+                    if positive_move_frames >= required_positive_frames:
+                        computer_play = winning_moves[predicted_move]
+                        show_computer_play = True
+                        computer_play_shown_at = None
+                        waiting_for_move_prediction = False
+
+            # Show the confirmed neural-network prediction across the screen,
             # then hide it after the configured timeout.
             if show_computer_play and computer_play is not None:
                 if computer_play_shown_at is None:
