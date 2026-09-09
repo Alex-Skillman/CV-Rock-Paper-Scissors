@@ -53,6 +53,8 @@ vertical_movement_ratio = 1.5
 average_time_between_first_two = None
 tracking_lost_at = None
 tracking_grace_period = 0.75
+# Placeholder for the computer's future selection.
+computer_play = None
 
 with mp_hands.Hands(
         model_complexity=0,
@@ -114,6 +116,9 @@ with mp_hands.Hands(
                 cv2.putText(frame, f"Current hand prediction: {labels[predicted_class]}", org, fontFace, fontScale, color, thickness, lineType)
             else:
                 cv2.putText(frame, "No hand detected", org, fontFace, fontScale, color, thickness, lineType)
+
+            computer_play_text = computer_play if computer_play is not None else "Waiting"
+            cv2.putText(frame, f"Computer play: {computer_play_text}", (10, 125), fontFace, 0.7, color, thickness, lineType)
                 
             if results.multi_hand_landmarks:
                 now = time.monotonic()
