@@ -28,7 +28,7 @@ def finger_locator (joint, hand_landmarks, width, height):
     
     return x, y, z
 
-def find_game_start_phase (frames, fps, width, height game_start_phase):
+def find_game_start_phase (frames, fps, width, height, game_start_phase):
     
     
     return game_start_phase

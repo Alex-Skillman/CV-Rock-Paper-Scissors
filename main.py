@@ -7,8 +7,7 @@ import time
 from shared.Data.fingerNames import joints
 from shared.functions.mediapipe_funcs import draw_annotations
 from shared.functions.RPS_ai_funcs import load_model
-from shared.functions.joint_pos_funcs import extract_joint_coordinates, finger_locator
-from shared.dataclasses import coordinates
+from shared.functions.joint_pos_funcs import extract_joint_coordinates
 
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
@@ -37,17 +36,28 @@ output_dim = 3
 model = load_model(input_dim, hidden_dim, output_dim)
 
 # Initalizes variables needed to run game start function
-fps = camera.get(cv2.CAP_PROP_FPS)
 game_start_phase = 0
-past_wrist_coords = []
-current_wrist_coords = coordinates(0,0)
-data_for_sec = 2  #seconds that wrist coords are stored for
-min_amplitude = .15  #Wrist must move 15% of the screen for a game to be able to start
+beat_times = []
+last_wrist_y = None
+last_wrist_x = None
+last_direction = 0
+last_turn_y = None
+last_turn_x = None
+smoothed_wrist_y = None
+smoothed_wrist_x = None
+min_start_beat_distance = 0.04
+direction_dead_zone = 0.002
+third_beat_tolerance = 0.65
+vertical_movement_ratio = 1.5
+# This is set after beat two and used to validate beat three.
+average_time_between_first_two = None
+tracking_lost_at = None
+tracking_grace_period = 0.75
 
 with mp_hands.Hands(
         model_complexity=0,
-        min_detection_confidence=0.75,
-        min_tracking_confidence=0.65,
+        min_detection_confidence=0.65,
+        min_tracking_confidence=0.35,
         max_num_hands = 1
     ) as hands:
         
@@ -97,9 +107,6 @@ with mp_hands.Hands(
                     
                     predicted_class = int(torch.argmax(output, dim=1).item())
                     
-                    x, y = finger_locator([WRIST_INDEX], hand_landmarks, width, height)
-                    current_wrist_coords = coordinates(x, y)
-                    
                     draw_annotations(frame, hand_landmarks)
             
             # Print predicted class onscreen is hand is present
@@ -108,27 +115,79 @@ with mp_hands.Hands(
             else:
                 cv2.putText(frame, "No hand detected", org, fontFace, fontScale, color, thickness, lineType)
                 
-            # Saves the past positions into an list
-            past_wrist_coords.append(current_wrist_coords)
-            # If past wrist cords exceeds 2 seconds worth of data then remove last index at
-            if len(past_wrist_coords) < 2/fps:
-                past_wrist_coords.pop(0)
-            
-            # Runs all this code once and allows for me to break
-            flag = True
-            while flag:
-                
-                if len(past_wrist_coords) == (data_for_sec*fps):
-                    # Check total amplitude
-                    y_amplitude = abs(past_wrist_coords[0].y - past_wrist_coords[-1].y)
-                    x_amplitude = abs(past_wrist_coords[0].x - past_wrist_coords[-1].x)
-                    if y_amplitude < (min_amplitude*height):
-                        if x_amplitude < (min_amplitude*width):
-                            game_start_phase += 1
-                # Change the flag to false once the loop is over 
-                flag = False
-                
-                flag = False
+            if results.multi_hand_landmarks:
+                now = time.monotonic()
+                if tracking_lost_at is not None:
+                    if now - tracking_lost_at > tracking_grace_period:
+                        beat_times = []
+                        average_time_between_first_two = None
+                    tracking_lost_at = None
+
+                raw_wrist_y = results.multi_hand_landmarks[0].landmark[0].y
+                raw_wrist_x = results.multi_hand_landmarks[0].landmark[0].x
+                if smoothed_wrist_y is None:
+                    smoothed_wrist_y = raw_wrist_y
+                    smoothed_wrist_x = raw_wrist_x
+                else:
+                    smoothed_wrist_y = 0.65 * smoothed_wrist_y + 0.35 * raw_wrist_y
+                    smoothed_wrist_x = 0.65 * smoothed_wrist_x + 0.35 * raw_wrist_x
+                wrist_y = smoothed_wrist_y
+                wrist_x = smoothed_wrist_x
+
+                if last_wrist_y is not None and last_wrist_x is not None:
+                    wrist_delta = wrist_y - last_wrist_y
+
+                    # Ignore tiny landmark jitter, then count a real down-to-up
+                    # wrist movement as one RPS start beat.
+                    if abs(wrist_delta) >= direction_dead_zone:
+                        direction = 1 if wrist_delta > 0 else -1
+                        if last_turn_y is not None and last_turn_x is not None:
+                            vertical_distance = abs(wrist_y - last_turn_y)
+                            horizontal_distance = abs(wrist_x - last_turn_x)
+                            is_vertical_beat = vertical_distance >= horizontal_distance * vertical_movement_ratio
+                            if last_direction == 1 and direction == -1 and vertical_distance >= min_start_beat_distance and is_vertical_beat:
+                                beat_times.append(now)
+
+                                if len(beat_times) == 2:
+                                    average_time_between_first_two = beat_times[1] - beat_times[0]
+                                elif len(beat_times) == 3:
+                                    third_beat_time = beat_times[2] - beat_times[1]
+                                    if abs(third_beat_time - average_time_between_first_two) <= third_beat_tolerance:
+                                        game_start_phase += 1
+                                        print("Game started")
+                                    beat_times = []
+                                    average_time_between_first_two = None
+
+                        if direction != last_direction:
+                            last_turn_y = wrist_y
+                            last_turn_x = wrist_x
+                        last_direction = direction
+
+                last_wrist_y = wrist_y
+                last_wrist_x = wrist_x
+            else:
+                if tracking_lost_at is None:
+                    tracking_lost_at = time.monotonic()
+                    # Keep the completed beats, but do not compare coordinates
+                    # from before and after a tracking gap.
+                    last_wrist_y = None
+                    last_wrist_x = None
+                    last_direction = 0
+                    last_turn_y = None
+                    last_turn_x = None
+                    smoothed_wrist_y = None
+                    smoothed_wrist_x = None
+                elif time.monotonic() - tracking_lost_at > tracking_grace_period:
+                    beat_times = []
+                    average_time_between_first_two = None
+
+            # Draw the three-beat game-start phase on screen.
+            start_phase = len(beat_times)
+            phase_label = "Game start: move down 3 times" if start_phase == 0 else f"Game start: beat {start_phase}/3"
+            cv2.putText(frame, phase_label, (10, 65), fontFace, 0.7, color, thickness, lineType)
+            for beat_index in range(3):
+                beat_color = (0, 255, 0) if beat_index < start_phase else (100, 100, 100)
+                cv2.circle(frame, (25 + beat_index * 30, 92), 9, beat_color, -1)
             
             # Display the frame AFTER drawing annotations
             cv2.imshow("Webcam Feed", frame)
