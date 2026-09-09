@@ -66,8 +66,8 @@ waiting_for_move_prediction = False
 
 with mp_hands.Hands(
         model_complexity=0,
-        min_detection_confidence=0.65,
-        min_tracking_confidence=0.35,
+        min_detection_confidence=0.50,
+        min_tracking_confidence=0.1,
         max_num_hands = 1
     ) as hands:
         
