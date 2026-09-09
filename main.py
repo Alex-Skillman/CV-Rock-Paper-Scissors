@@ -50,6 +50,7 @@ min_start_beat_distance = 0.04
 direction_dead_zone = 0.002
 third_beat_tolerance = 0.65
 vertical_movement_ratio = 1.5
+required_start_beats = 4
 # This is set after beat two and used to validate beat three.
 average_time_between_first_two = None
 tracking_lost_at = None
@@ -59,7 +60,7 @@ computer_play = None
 show_computer_play = False
 computer_play_timeout = 2.0
 computer_play_shown_at = None
-required_positive_frames = 8
+required_positive_frames = 3
 positive_move_label = None
 positive_move_frames = 0
 waiting_for_move_prediction = False
@@ -160,19 +161,24 @@ with mp_hands.Hands(
 
                                 if len(beat_times) == 2:
                                     average_time_between_first_two = beat_times[1] - beat_times[0]
-                                elif len(beat_times) == 3:
-                                    third_beat_time = beat_times[2] - beat_times[1]
-                                    if abs(third_beat_time - average_time_between_first_two) <= third_beat_tolerance:
-                                        game_start_phase += 1
-                                        print("Game started")
-                                        waiting_for_move_prediction = True
-                                        positive_move_label = None
-                                        positive_move_frames = 0
-                                        computer_play = None
-                                        show_computer_play = False
-                                        computer_play_shown_at = None
-                                    beat_times = []
-                                    average_time_between_first_two = None
+                                elif len(beat_times) >= 3:
+                                    current_beat_time = beat_times[-1] - beat_times[-2]
+                                    if abs(current_beat_time - average_time_between_first_two) <= third_beat_tolerance:
+                                        if len(beat_times) == required_start_beats:
+                                            game_start_phase += 1
+                                            print("Game started")
+                                            waiting_for_move_prediction = True
+                                            positive_move_label = None
+                                            positive_move_frames = 0
+                                            computer_play = None
+                                            show_computer_play = False
+                                            computer_play_shown_at = None
+                                            beat_times = []
+                                            average_time_between_first_two = None
+                                    else:
+                                        # A beat outside the established rhythm starts a new sequence.
+                                        beat_times = []
+                                        average_time_between_first_two = None
 
                         if direction != last_direction:
                             last_turn_y = wrist_y
@@ -197,11 +203,11 @@ with mp_hands.Hands(
                     beat_times = []
                     average_time_between_first_two = None
 
-            # Draw the three-beat game-start phase on screen.
+            # Draw the game-start phase on screen.
             start_phase = len(beat_times)
-            phase_label = "Game start: move down 3 times" if start_phase == 0 else f"Game start: beat {start_phase}/3"
+            phase_label = f"Game start: move down {required_start_beats} times" if start_phase == 0 else f"Game start: beat {start_phase}/{required_start_beats}"
             cv2.putText(frame, phase_label, (10, 65), fontFace, 0.7, color, thickness, lineType)
-            for beat_index in range(3):
+            for beat_index in range(required_start_beats):
                 beat_color = (0, 255, 0) if beat_index < start_phase else (100, 100, 100)
                 cv2.circle(frame, (25 + beat_index * 30, 92), 9, beat_color, -1)
 
