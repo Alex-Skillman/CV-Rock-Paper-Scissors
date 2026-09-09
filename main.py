@@ -53,8 +53,11 @@ vertical_movement_ratio = 1.5
 average_time_between_first_two = None
 tracking_lost_at = None
 tracking_grace_period = 0.75
-# Placeholder for the computer's future selection.
-computer_play = None
+# Test-only display values. No computer-play selection logic yet.
+computer_play = "Rock"
+show_computer_play = True
+computer_play_timeout = 2.0
+computer_play_shown_at = None
 
 with mp_hands.Hands(
         model_complexity=0,
@@ -117,9 +120,6 @@ with mp_hands.Hands(
             else:
                 cv2.putText(frame, "No hand detected", org, fontFace, fontScale, color, thickness, lineType)
 
-            computer_play_text = computer_play if computer_play is not None else "Waiting"
-            cv2.putText(frame, f"Computer play: {computer_play_text}", (10, 125), fontFace, 0.7, color, thickness, lineType)
-                
             if results.multi_hand_landmarks:
                 now = time.monotonic()
                 if tracking_lost_at is not None:
@@ -193,6 +193,24 @@ with mp_hands.Hands(
             for beat_index in range(3):
                 beat_color = (0, 255, 0) if beat_index < start_phase else (100, 100, 100)
                 cv2.circle(frame, (25 + beat_index * 30, 92), 9, beat_color, -1)
+
+            # Test display: show the current computer value across the screen,
+            # then hide it after the configured timeout.
+            if show_computer_play and computer_play is not None:
+                if computer_play_shown_at is None:
+                    computer_play_shown_at = time.monotonic()
+
+                if time.monotonic() - computer_play_shown_at < computer_play_timeout:
+                    overlay = frame.copy()
+                    cv2.rectangle(overlay, (0, 0), (width, height), (0, 0, 0), -1)
+                    cv2.addWeighted(overlay, 0.65, frame, 0.35, 0, frame)
+                    display_text = computer_play.upper()
+                    text_size, _ = cv2.getTextSize(display_text, fontFace, 4.0, 8)
+                    text_x = (width - text_size[0]) // 2
+                    text_y = (height + text_size[1]) // 2
+                    cv2.putText(frame, display_text, (text_x, text_y), fontFace, 4.0, (255, 255, 255), 8, lineType)
+                else:
+                    show_computer_play = False
             
             # Display the frame AFTER drawing annotations
             cv2.imshow("Webcam Feed", frame)
